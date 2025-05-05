@@ -10,9 +10,10 @@ import '../widgets/custom_dropdown.dart';
 import 'package:energenius/screens/login_screen.dart';
 import '../utils/page_transition.dart';
 import '../widgets/theme_toggle_button.dart';
-import '../database/database_helper.dart';
 import '../localization/app_localizations.dart';
 import '../localization/language_provider.dart';
+import '../database/database_helper.dart';
+import 'main_screen.dart';
 
 class SignupScreen extends StatefulWidget {
   const SignupScreen({super.key});
@@ -88,7 +89,8 @@ class SignupScreenState extends State<SignupScreen> with SingleTickerProviderSta
         'created_at': FieldValue.serverTimestamp(),
       });
       
-      // Initialize consumption history for the new user
+      // Initialize database and consumption history for the new user
+      await DatabaseHelper.instance.initialize(userCredential.user!.uid);
       await DatabaseHelper.instance.initializeUserConsumption(userCredential.user!.uid);
 
       if (!mounted) return;

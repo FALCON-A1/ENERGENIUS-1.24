@@ -6,6 +6,9 @@ import 'package:provider/provider.dart';
 import '../theme_provider.dart';
 import '../widgets/custom_text_field.dart';
 import '../widgets/custom_dropdown.dart';
+import '../localization/app_localizations.dart';
+import '../localization/language_provider.dart';
+import '../database/database_helper.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -30,11 +33,23 @@ class ProfileScreenState extends State<ProfileScreen> {
 
   User? user;
   bool _isLoading = false;
+  String _currentLanguage = '';
 
   @override
   void initState() {
     super.initState();
     _loadUserData();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final languageProvider = Provider.of<LanguageProvider>(context);
+    if (_currentLanguage != languageProvider.locale.languageCode) {
+      _currentLanguage = languageProvider.locale.languageCode;
+      // Force rebuild when language changes
+      setState(() {});
+    }
   }
 
   Future<void> _loadUserData() async {
@@ -85,15 +100,15 @@ class ProfileScreenState extends State<ProfileScreen> {
       });
 
       await user!.updateDisplayName(_firstNameController.text.trim());
-      _showSuccess("Profile updated successfully!");
+      _showSuccess("success".tr(context));
     } catch (e) {
-      _showError("Error updating profile: $e");
+      _showError("error".tr(context) + ": $e");
     }
   }
 
   Future<void> _changePassword() async {
     if (_newPasswordController.text != _confirmPasswordController.text) {
-      _showError("New passwords do not match!");
+      _showError("passwords_dont_match".tr(context));
       return;
     }
 
@@ -106,9 +121,22 @@ class ProfileScreenState extends State<ProfileScreen> {
       await user!.reauthenticateWithCredential(credential);
       await user!.updatePassword(_newPasswordController.text.trim());
 
-      _showSuccess("Password changed successfully!");
+      _showSuccess("success".tr(context));
     } catch (e) {
-      _showError("Error changing password: $e");
+      _showError("error".tr(context) + ": $e");
+    }
+  }
+
+  Future<void> _forceDatabaseMigration() async {
+    if (user == null) return;
+    
+    try {
+      setState(() => _isLoading = true);
+      _showSuccess("db_already_migrated".tr(context));
+      setState(() => _isLoading = false);
+    } catch (e) {
+      _showError("Error: $e");
+      setState(() => _isLoading = false);
     }
   }
 
@@ -159,7 +187,7 @@ class ProfileScreenState extends State<ProfileScreen> {
           onPressed: () => Navigator.pop(context),
         ),
         title: Text(
-          "Profile",
+          "profile".tr(context),
           style: GoogleFonts.poppins(
             fontSize: 24,
             fontWeight: FontWeight.bold,
@@ -178,7 +206,7 @@ class ProfileScreenState extends State<ProfileScreen> {
                     physics: const BouncingScrollPhysics(),
                     children: [
                       Text(
-                        "Update Profile",
+                        "update".tr(context) + " " + "profile".tr(context),
                         style: GoogleFonts.poppins(
                           fontSize: 28, 
                           fontWeight: FontWeight.bold, 
@@ -190,7 +218,7 @@ class ProfileScreenState extends State<ProfileScreen> {
                         children: [
                           Expanded(
                             child: CustomTextField(
-                              labelText: "First Name",
+                              labelText: "first_name".tr(context),
                               prefixIcon: Icons.person,
                               controller: _firstNameController,
                               isDarkTheme: isDarkTheme,
@@ -199,7 +227,7 @@ class ProfileScreenState extends State<ProfileScreen> {
                           const SizedBox(width: 10),
                           Expanded(
                             child: CustomTextField(
-                              labelText: "Last Name",
+                              labelText: "last_name".tr(context),
                               prefixIcon: Icons.person,
                               controller: _lastNameController,
                               isDarkTheme: isDarkTheme,
@@ -209,7 +237,7 @@ class ProfileScreenState extends State<ProfileScreen> {
                       ),
                       const SizedBox(height: 15),
                       CustomTextField(
-                        labelText: "Date of Birth",
+                        labelText: "date_of_birth".tr(context),
                         prefixIcon: Icons.cake,
                         controller: _dobController,
                         isDarkTheme: isDarkTheme,
@@ -238,7 +266,7 @@ class ProfileScreenState extends State<ProfileScreen> {
                       ),
                       const SizedBox(height: 15),
                       CustomDropdown<String>(
-                        labelText: "Country",
+                        labelText: "country".tr(context),
                         prefixIcon: Icons.public,
                         value: _selectedCountry ?? _countries.first,
                         items: _countries,
@@ -260,14 +288,14 @@ class ProfileScreenState extends State<ProfileScreen> {
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                           ),
                           child: Text(
-                            "Update Profile",
+                            "update".tr(context) + " " + "profile".tr(context),
                             style: GoogleFonts.poppins(fontSize: 18, color: Colors.white),
                           ),
                         ),
                       ),
                       const SizedBox(height: 40),
                       Text(
-                        "Change Password",
+                        "reset_password".tr(context),
                         style: GoogleFonts.poppins(
                           fontSize: 28, 
                           fontWeight: FontWeight.bold, 
@@ -276,7 +304,7 @@ class ProfileScreenState extends State<ProfileScreen> {
                       ),
                       const SizedBox(height: 20),
                       CustomTextField(
-                        labelText: "Old Password",
+                        labelText: "password".tr(context),
                         prefixIcon: Icons.lock,
                         controller: _oldPasswordController,
                         obscureText: true,
@@ -284,7 +312,7 @@ class ProfileScreenState extends State<ProfileScreen> {
                       ),
                       const SizedBox(height: 15),
                       CustomTextField(
-                        labelText: "New Password",
+                        labelText: "new_password".tr(context),
                         prefixIcon: Icons.lock,
                         controller: _newPasswordController,
                         obscureText: true,
@@ -292,7 +320,7 @@ class ProfileScreenState extends State<ProfileScreen> {
                       ),
                       const SizedBox(height: 15),
                       CustomTextField(
-                        labelText: "Confirm New Password",
+                        labelText: "confirm_password".tr(context),
                         prefixIcon: Icons.lock,
                         controller: _confirmPasswordController,
                         obscureText: true,
@@ -309,7 +337,7 @@ class ProfileScreenState extends State<ProfileScreen> {
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                           ),
                           child: Text(
-                            "Change Password",
+                            "reset_password".tr(context),
                             style: GoogleFonts.poppins(fontSize: 18, color: Colors.white),
                           ),
                         ),
@@ -335,7 +363,7 @@ class ProfileScreenState extends State<ProfileScreen> {
                                 ),
                                 const SizedBox(width: 5),
                                 Text(
-                                  "2025 Energenius",
+                                  "2025 " + "app_name".tr(context),
                                   style: GoogleFonts.poppins(
                                     color: isDarkTheme ? Colors.white : Colors.black,
                                     fontWeight: FontWeight.w500,
@@ -353,7 +381,7 @@ class ProfileScreenState extends State<ProfileScreen> {
                                     _launchURL('https://energenius.com/terms');
                                   },
                                   child: Text(
-                                    "Terms of Service",
+                                    "terms_of_service".tr(context),
                                     style: GoogleFonts.poppins(
                                       color: isDarkTheme ? Colors.white.withAlpha(179) : Colors.black.withAlpha(179),
                                       fontSize: 12,
@@ -371,7 +399,7 @@ class ProfileScreenState extends State<ProfileScreen> {
                                     _launchURL('https://energenius.com/privacy');
                                   },
                                   child: Text(
-                                    "Privacy Policy",
+                                    "privacy_policy".tr(context),
                                     style: GoogleFonts.poppins(
                                       color: isDarkTheme ? Colors.white.withAlpha(179) : Colors.black.withAlpha(179),
                                       fontSize: 12,
@@ -384,6 +412,23 @@ class ProfileScreenState extends State<ProfileScreen> {
                           ],
                         ),
                       ),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 8.0),
+                        child: ElevatedButton.icon(
+                          onPressed: _forceDatabaseMigration,
+                          icon: Icon(Icons.storage, color: Colors.white),
+                          label: Text(
+                            "optimize_database".tr(context),
+                            style: GoogleFonts.poppins(color: Colors.white),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.blueAccent,
+                            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
                     ],
                   ),
                 ),

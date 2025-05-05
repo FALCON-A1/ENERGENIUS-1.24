@@ -27,7 +27,7 @@ class MainScreenState extends State<MainScreen> {
   ];
 
   // We'll build the titles dynamically based on the current locale
-  final List<String> _titleKeys = ['home', 'devices', 'history', 'settings'];
+  final List<String> _titleKeys = ['nav_home', 'nav_devices', 'nav_history', 'nav_settings'];
   final List<IconData> _icons = [
     Icons.home,
     Icons.devices,
@@ -120,7 +120,7 @@ class CustomNavigationBar extends StatelessWidget {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: List.generate(titles.length, (index) {
-              return Flexible(
+              return Expanded(
                 child: _buildNavItem(context, index),
               );
             }),
@@ -133,39 +133,54 @@ class CustomNavigationBar extends StatelessWidget {
   Widget _buildNavItem(BuildContext context, int index) {
     final bool isSelected = selectedIndex == index;
     return GestureDetector(
+      behavior: HitTestBehavior.opaque,
       onTap: () => onItemTapped(index),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        curve: Curves.easeInOut,
-        padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            AnimatedScale(
-              duration: const Duration(milliseconds: 200),
-              scale: isSelected ? 1.2 : 1.0,
-              child: Icon(
-                icons[index],
-                size: 28,
-                color: isSelected ? Colors.blueAccent : Colors.white70,
-              ),
-            ),
-            if (isSelected)
-              Flexible(
-                child: Padding(
-                  padding: const EdgeInsets.only(left: 8.0),
-                  child: Text(
-                    titles[index],
-                    overflow: TextOverflow.ellipsis,
-                    style: GoogleFonts.poppins(
-                      color: Colors.blueAccent,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
+      child: Container(
+        alignment: Alignment.center,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeInOut,
+          padding: EdgeInsets.symmetric(
+            horizontal: isSelected ? 4.0 : 0.0,
+            vertical: 4.0,
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              AnimatedScale(
+                duration: const Duration(milliseconds: 200),
+                scale: isSelected ? 1.2 : 1.0,
+                child: Icon(
+                  icons[index],
+                  size: 26,
+                  color: isSelected ? Colors.blueAccent : Colors.white70,
                 ),
               ),
-          ],
+              if (isSelected)
+                Flexible(
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      return Padding(
+                        padding: const EdgeInsets.only(left: 4.0),
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(
+                            titles[index],
+                            maxLines: 1,
+                            style: GoogleFonts.poppins(
+                              color: Colors.blueAccent,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
     );

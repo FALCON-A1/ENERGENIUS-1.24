@@ -13,6 +13,8 @@ import '../utils/page_transition.dart';
 import '../widgets/theme_toggle_button.dart';
 import '../localization/app_localizations.dart';
 import '../localization/language_provider.dart';
+import '../database/database_helper.dart';
+import 'dart:developer' as developer;
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -93,10 +95,13 @@ class LoginScreenState extends State<LoginScreen> with SingleTickerProviderState
     setState(() => _isLoading = true);
 
     try {
-      await _auth.signInWithEmailAndPassword(
+      UserCredential userCredential = await _auth.signInWithEmailAndPassword(
         email: _emailController.text.trim(),
         password: _passwordController.text.trim(),
       );
+
+      // Initialize database for the logged-in user
+      await DatabaseHelper.instance.initialize(userCredential.user!.uid);
 
       await _saveCredentials();
       if (!mounted) return;
@@ -201,12 +206,17 @@ class LoginScreenState extends State<LoginScreen> with SingleTickerProviderState
                       ),
                       const SizedBox(height: 20),
                       
-                      Text(
-                        "login_to".tr(context) + " " + "app_name".tr(context),
-                        style: GoogleFonts.poppins(
-                          color: isDarkTheme ? Colors.white : Colors.black,
-                          fontSize: 28,
-                          fontWeight: FontWeight.bold,
+                      FittedBox(
+                        fit: BoxFit.fitWidth,
+                        child: Text(
+                          "login_title".tr(context),
+                          style: GoogleFonts.poppins(
+                            color: isDarkTheme ? Colors.white : Colors.black,
+                            fontSize: 28,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.visible,
                         ),
                       ),
                       const SizedBox(height: 10),

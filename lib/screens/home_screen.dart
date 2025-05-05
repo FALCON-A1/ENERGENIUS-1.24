@@ -100,7 +100,7 @@ class HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateMi
       }
 
       try {
-        List<Map<String, dynamic>> devices = await DatabaseHelper.instance.getDevices(user!.uid);
+        List<Map<String, dynamic>> devices = await DatabaseHelper.instance.getUserDevices(user!.uid);
         double total = 0.0;
         for (var device in devices) {
           double powerConsumption = (device['power_consumption'] ?? 0.0).toDouble();
@@ -1129,7 +1129,7 @@ class HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateMi
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Daily consumption card
+        // Main consumption card - Shows current real-time consumption
         Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
@@ -1153,7 +1153,7 @@ class HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateMi
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                "daily_consumption".tr(context),
+                "current_consumption".tr(context),
                 style: GoogleFonts.poppins(
                   fontSize: 16,
                   fontWeight: FontWeight.w500,
@@ -1162,7 +1162,7 @@ class HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateMi
               ),
               const SizedBox(height: 15),
               Text(
-                _formatEnergyValue(totalDailyConsumption),
+                _formatEnergyValue(totalDailyConsumption / 24), // Real-time consumption approximation
                 style: GoogleFonts.poppins(
                   fontSize: 28,
                   fontWeight: FontWeight.bold,
@@ -1215,9 +1215,18 @@ class HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateMi
         ),
         const SizedBox(height: 20),
         
-        // Energy statistics
+        // Energy statistics row with daily, weekly, monthly
         Row(
           children: [
+            Expanded(
+              child: _buildStatCard(
+                title: "daily".tr(context),
+                value: _formatEnergyValue(totalDailyConsumption),
+                iconData: Icons.today,
+                isDarkTheme: isDarkTheme,
+              ),
+            ),
+            const SizedBox(width: 10),
             Expanded(
               child: _buildStatCard(
                 title: "weekly".tr(context),
@@ -1226,7 +1235,7 @@ class HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateMi
                 isDarkTheme: isDarkTheme,
               ),
             ),
-            const SizedBox(width: 15),
+            const SizedBox(width: 10),
             Expanded(
               child: _buildStatCard(
                 title: "monthly".tr(context),
