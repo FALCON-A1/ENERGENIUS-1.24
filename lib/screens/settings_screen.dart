@@ -125,10 +125,96 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _deleteAccount() async {
     try {
-      String userId = FirebaseAuth.instance.currentUser!.uid;
+      // Firebase requires recent authentication for sensitive operations
+      // Show a reauthentication dialog first
+      final user = FirebaseAuth.instance.currentUser!;
+      final TextEditingController passwordController = TextEditingController();
+      bool reAuthSuccess = false;
+      
+      // Show authentication dialog
+      await showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+          backgroundColor: Theme.of(context).brightness == Brightness.dark ? Colors.grey[900] : Colors.white,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+          title: Text(
+            "authentication_required".tr(context) ?? "Authentication Required",
+            style: GoogleFonts.poppins(
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                "enter_password_to_continue".tr(context) ?? "Please enter your password to continue with account deletion.",
+                style: GoogleFonts.poppins(),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: passwordController,
+                obscureText: true,
+                decoration: InputDecoration(
+                  labelText: "password".tr(context) ?? "Password",
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(
+                "cancel".tr(context) ?? "Cancel",
+                style: GoogleFonts.poppins(color: Colors.blueAccent),
+              ),
+            ),
+            TextButton(
+              onPressed: () async {
+                try {
+                  // Create credentials
+                  AuthCredential credential = EmailAuthProvider.credential(
+                    email: user.email!,
+                    password: passwordController.text,
+                  );
+                  
+                  // Reauthenticate user
+                  await user.reauthenticateWithCredential(credential);
+                  reAuthSuccess = true;
+                  Navigator.pop(context);
+                } catch (e) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        "authentication_failed".tr(context) ?? "Authentication failed. Please try again.",
+                        style: const TextStyle(color: Colors.white)
+                      ),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              },
+              child: Text(
+                "authenticate".tr(context) ?? "Authenticate",
+                style: GoogleFonts.poppins(color: Colors.redAccent),
+              ),
+            ),
+          ],
+        ),
+      );
+      
+      // If user canceled or authentication failed, return
+      if (!reAuthSuccess) return;
+      
+      // Now proceed with account deletion
+      String userId = user.uid;
       await FirebaseFirestore.instance.collection('users').doc(userId).delete();
-      await FirebaseAuth.instance.currentUser!.delete();
+      await user.delete();
       await _clearCache();
+      
       if (!mounted) return;
       Navigator.pushReplacement(
         context,
@@ -140,7 +226,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         SnackBar(
           content: Text("error_deleting_account".tr(context) + ": $e", style: const TextStyle(color: Colors.white)),
           backgroundColor: Colors.red,
-          duration: const Duration(seconds: 1),
+          duration: const Duration(seconds: 3),
         ),
       );
     }

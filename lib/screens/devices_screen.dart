@@ -145,11 +145,15 @@ class _DevicesScreenState extends State<DevicesScreen> {
     }
   }
 
-  IconData _getCategoryIcon(String? categoryId) {
+  IconData _getCategoryIcon(dynamic categoryId) {
+    // Handle both string and int types for categoryId
+    String categoryIdStr = categoryId.toString();
+    
     final category = _categories.firstWhere(
-          (cat) => cat['id'] == categoryId,
+      (cat) => cat['id'].toString() == categoryIdStr,
       orElse: () => {'name': 'Unknown'},
     );
+    
     switch (category['name'] as String) {
       case 'Air Conditioner':
         return Icons.ac_unit;
@@ -176,11 +180,15 @@ class _DevicesScreenState extends State<DevicesScreen> {
     }
   }
 
-  String categoryName(String? categoryId) {
+  String categoryName(dynamic categoryId) {
+    // Handle both string and int types for categoryId
+    String categoryIdStr = categoryId.toString();
+    
     final category = _categories.firstWhere(
-          (cat) => cat['id'] == categoryId,
+      (cat) => cat['id'].toString() == categoryIdStr,
       orElse: () => {'name': 'Unknown'},
     );
+    
     return category['name'] as String? ?? 'Unknown';
   }
 
@@ -251,11 +259,24 @@ class _DevicesScreenState extends State<DevicesScreen> {
                     style: GoogleFonts.poppins(
                       color: isDarkTheme ? Colors.white : Colors.black,
                       fontSize: 28,
-                      fontWeight: FontWeight.bold,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
                   Row(
                     children: [
+                      // Info button with tooltip
+                      IconButton(
+                        icon: Icon(
+                          Icons.info_outline,
+                          color: Colors.blueAccent,
+                          size: 24,
+                        ),
+                        onPressed: () {
+                          _showTrackingInfoDialog();
+                        },
+                        tooltip: 'How tracking works',
+                      ),
+                      const SizedBox(width: 10),
                       ElevatedButton(
                         onPressed: _showAddDevicePopup,
                         style: ElevatedButton.styleFrom(
@@ -286,7 +307,32 @@ class _DevicesScreenState extends State<DevicesScreen> {
                   ),
                 ],
               ),
-              const SizedBox(height: 20),
+              
+              // Active devices counter
+              if (_userDevices.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 10.0, bottom: 5.0),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.power,
+                        size: 16,
+                        color: Colors.green,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        "${_userDevices.where((device) => device['last_active'] != null).length} active device(s)",
+                        style: GoogleFonts.poppins(
+                          color: isDarkTheme ? Colors.white70 : Colors.black54,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              
+              const SizedBox(height: 10),
               Expanded(
                 child: _userDevices.isEmpty
                     ? Center(
@@ -327,6 +373,8 @@ class _DevicesScreenState extends State<DevicesScreen> {
                           final usage = device['usage_hours_per_day'] as double? ?? 0.0;
                           final dailyConsumption = power * usage;
                           final deviceId = device['id'] as String? ?? ''; // Handle potential null
+                          final isActive = device['last_active'] != null;
+                          
                           return Card(
                             color: isDarkTheme 
                                 ? Colors.white.withAlpha(26) 
@@ -403,6 +451,31 @@ class _DevicesScreenState extends State<DevicesScreen> {
                                             ],
                                           ),
                                         ),
+                                        
+                                        // Device active status switch
+                                        Row(
+                                          children: [
+                                            Text(
+                                              isActive ? 'Active' : 'Inactive',
+                                              style: GoogleFonts.poppins(
+                                                color: isActive ? Colors.green : (isDarkTheme ? Colors.white70 : Colors.black54),
+                                                fontSize: 12,
+                                                fontWeight: isActive ? FontWeight.w600 : FontWeight.normal,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 8),
+                                            Switch(
+                                              value: isActive,
+                                              activeColor: Colors.green,
+                                              activeTrackColor: Colors.green.withOpacity(0.5),
+                                              inactiveThumbColor: isDarkTheme ? Colors.grey[400] : Colors.grey[300],
+                                              inactiveTrackColor: isDarkTheme ? Colors.grey[700] : Colors.grey[200],
+                                              onChanged: (value) {
+                                                _toggleDeviceActive(deviceId, value);
+                                              },
+                                            ),
+                                          ],
+                                        ),
                                       ],
                                     ),
                                   ),
@@ -438,7 +511,7 @@ class _DevicesScreenState extends State<DevicesScreen> {
                                         
                                         // Usage hours row
                                         Row(
-                                  children: [
+                                          children: [
                                             Icon(
                                               Icons.access_time,
                                               size: 18,
@@ -447,7 +520,7 @@ class _DevicesScreenState extends State<DevicesScreen> {
                                             const SizedBox(width: 8),
                                             Expanded(
                                               child: Text(
-                                                'usage_hours'.tr(context) + ': ${usage.toStringAsFixed(1)} hrs/day',
+                                                'uptime'.tr(context) + ': ${(device['daily_uptime'] ?? 0.0).toStringAsFixed(1)} hrs/day',
                                                 style: GoogleFonts.poppins(
                                                   color: isDarkTheme ? Colors.white70 : Colors.black87,
                                                   fontSize: 13,
@@ -471,7 +544,7 @@ class _DevicesScreenState extends State<DevicesScreen> {
                                             const SizedBox(width: 8),
                                             Expanded(
                                               child: Text(
-                                                'daily_consumption'.tr(context) + ': ${_formatEnergyValue(dailyConsumption)}',
+                                                'daily_consumption'.tr(context) + ': ${_formatEnergyValue(device['daily_consumption'] ?? 0.0)}',
                                                 style: GoogleFonts.poppins(
                                                   color: isDarkTheme ? Colors.amber[300] : Colors.amber[700],
                                                   fontSize: 13,
@@ -605,6 +678,155 @@ class _DevicesScreenState extends State<DevicesScreen> {
       ),
     );
   }
+
+  // New method to toggle device active status
+  Future<void> _toggleDeviceActive(String deviceId, bool isActive) async {
+    try {
+      await DatabaseHelper.instance.updateDeviceUptime(
+        deviceId: deviceId,
+        isActive: isActive,
+      );
+      
+      _fetchData(); // Refresh the device list after toggling
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: Colors.green,
+            content: Text(
+              isActive ? 'Device activated' : 'Device deactivated',
+              style: const TextStyle(color: Colors.white),
+            ),
+            duration: const Duration(seconds: 1),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: Colors.redAccent,
+            content: Text('Error changing device status: $e', style: const TextStyle(color: Colors.white)),
+            duration: const Duration(seconds: 1),
+          ),
+        );
+      }
+    }
+  }
+
+  // Show info dialog about how tracking works
+  void _showTrackingInfoDialog() {
+    showDialog(
+      context: context,
+      builder: (context) {
+        final themeProvider = Provider.of<ThemeProvider>(context);
+        final bool isDarkTheme = themeProvider.isDarkTheme;
+        
+        return AlertDialog(
+          backgroundColor: isDarkTheme ? Colors.grey[900] : Colors.white,
+          title: Text(
+            'How Energy Tracking Works',
+            style: GoogleFonts.poppins(
+              color: isDarkTheme ? Colors.white : Colors.black,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _infoItem(
+                  isDarkTheme,
+                  Icons.power,
+                  'Active Devices',
+                  'Toggle the switch to mark a device as active or inactive. Active devices will track real-time energy usage.',
+                ),
+                const SizedBox(height: 16),
+                _infoItem(
+                  isDarkTheme,
+                  Icons.timer,
+                  'Device Uptime',
+                  'Shows how long your device has been active today. Resets at midnight.',
+                ),
+                const SizedBox(height: 16),
+                _infoItem(
+                  isDarkTheme,
+                  Icons.bolt,
+                  'Daily Consumption',
+                  'Calculated from your device\'s power rating and its actual uptime.',
+                ),
+                const SizedBox(height: 16),
+                _infoItem(
+                  isDarkTheme,
+                  Icons.notifications_active,
+                  'Background Tracking',
+                  'Your devices will continue tracking energy usage even when the app is closed.',
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text(
+                'Got it',
+                style: GoogleFonts.poppins(
+                  color: Colors.blueAccent,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+  
+  // Helper method to create info items
+  Widget _infoItem(bool isDarkTheme, IconData icon, String title, String description) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: Colors.blue.withAlpha(isDarkTheme ? 40 : 20),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Icon(
+            icon,
+            color: Colors.blueAccent,
+            size: 22,
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: GoogleFonts.poppins(
+                  color: isDarkTheme ? Colors.white : Colors.black,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                description,
+                style: GoogleFonts.poppins(
+                  color: isDarkTheme ? Colors.white70 : Colors.black54,
+                  fontSize: 14,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
 }
 
 // Dialog for adding a preset device
@@ -624,9 +846,16 @@ class AddDeviceDialog extends StatefulWidget {
 
 class _AddDeviceDialogState extends State<AddDeviceDialog> {
   List<Map<String, dynamic>> _allDevices = [];
-  List<Map<String, dynamic>> _filteredDevices = [];
-  String _searchQuery = '';
+  
+  // Selected values
   int? _selectedCategoryId;
+  String? _selectedManufacturer;
+  Map<String, dynamic>? _selectedModel;
+  
+  // Filtered lists
+  List<String> _manufacturersList = [];
+  List<Map<String, dynamic>> _modelsList = [];
+  
   bool _isLoading = true;
 
   @override
@@ -636,67 +865,152 @@ class _AddDeviceDialogState extends State<AddDeviceDialog> {
   }
 
   Future<void> _fetchPresetDevices() async {
-    _allDevices = await DatabaseHelper.instance.getPresetDevices();
-    debugPrint('Fetched preset devices in dialog: $_allDevices');
-    _filteredDevices = List.from(_allDevices);
-    if (mounted) {
-    setState(() {
-        _isLoading = false;
-      });
+    setState(() => _isLoading = true);
+    
+    try {
+      _allDevices = await DatabaseHelper.instance.getPresetDevices();
+      debugPrint('Fetched preset devices in dialog: ${_allDevices.length} devices');
+    } catch (e) {
+      debugPrint('Error fetching preset devices: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
-  void _filterDevices() {
-    if (_searchQuery.isEmpty && _selectedCategoryId == null) {
-      _filteredDevices = List.from(_allDevices);
-    } else {
-      _filteredDevices = _allDevices.where((device) {
-        bool matchesSearch = _searchQuery.isEmpty ||
-            (device['manufacturer']?.toString().toLowerCase().contains(_searchQuery.toLowerCase()) ?? false) ||
-            (device['model']?.toString().toLowerCase().contains(_searchQuery.toLowerCase()) ?? false);
-            
-        bool matchesCategory = _selectedCategoryId == null || device['category_id'] == _selectedCategoryId;
-        
-        return matchesSearch && matchesCategory;
-      }).toList();
+  // Update manufacturers list when category is selected
+  void _updateManufacturers() {
+    if (_selectedCategoryId == null) {
+      setState(() {
+        _manufacturersList = [];
+        _selectedManufacturer = null;
+        _modelsList = [];
+        _selectedModel = null;
+      });
+      return;
     }
+    
+    // Filter devices by selected category
+    List<Map<String, dynamic>> categoryDevices = _allDevices.where((device) {
+      if (device['category_id'] == null) return false;
+      
+      // Handle string or int type for category_id
+      int deviceCategoryId;
+      if (device['category_id'] is int) {
+        deviceCategoryId = device['category_id'];
+      } else {
+        deviceCategoryId = int.tryParse(device['category_id'].toString()) ?? -1;
+      }
+      
+      return deviceCategoryId == _selectedCategoryId;
+    }).toList();
+    
+    // Extract unique manufacturers
+    Set<String> manufacturersSet = {};
+    for (var device in categoryDevices) {
+      String manufacturer = device['manufacturer']?.toString() ?? 'Unknown';
+      if (manufacturer.isNotEmpty) {
+        manufacturersSet.add(manufacturer);
+      }
+    }
+    
+    setState(() {
+      _manufacturersList = manufacturersSet.toList()..sort();
+      _selectedManufacturer = null;
+      _modelsList = [];
+      _selectedModel = null;
+    });
+  }
+  
+  // Update models list when manufacturer is selected
+  void _updateModels() {
+    if (_selectedCategoryId == null || _selectedManufacturer == null) {
+      _modelsList = [];
+      _selectedModel = null;
+      return;
+    }
+    
+    // Filter devices by selected category and manufacturer
+    _modelsList = _allDevices.where((device) {
+      if (device['category_id'] == null || device['manufacturer'] == null) return false;
+      
+      // Handle string or int type for category_id
+      int deviceCategoryId;
+      if (device['category_id'] is int) {
+        deviceCategoryId = device['category_id'];
+      } else {
+        deviceCategoryId = int.tryParse(device['category_id'].toString()) ?? -1;
+      }
+      
+      String manufacturer = device['manufacturer']?.toString() ?? '';
+      
+      return deviceCategoryId == _selectedCategoryId && 
+             manufacturer == _selectedManufacturer;
+    }).toList();
+    
+    setState(() {
+      _selectedModel = null;
+    });
+  }
+
+  // Update selected model
+  void _updateSelectedModel(String modelName) {
+    if (_modelsList.isEmpty) return;
+    
+    _selectedModel = _modelsList.firstWhere(
+      (model) => model['model'] == modelName,
+      orElse: () => _modelsList.first,
+    );
     
     setState(() {});
   }
 
-  Future<void> _addDeviceToUser(Map<String, dynamic> device) async {
+  Future<void> _addDeviceToUser() async {
+    if (_selectedCategoryId == null || _selectedManufacturer == null || _selectedModel == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.redAccent, 
+          content: Text('Please select all required fields', style: const TextStyle(color: Colors.white)),
+          duration: const Duration(seconds: 1),
+        ),
+      );
+      return;
+    }
+    
     final userId = FirebaseAuth.instance.currentUser!.uid;
     
     try {
       await DatabaseHelper.instance.addUserDevice(
         userId: userId,
-        categoryId: device['category_id'],
-        manufacturer: device['manufacturer'],
-        model: device['model'],
-        powerConsumption: device['power_consumption'],
-        usageHoursPerDay: 1.0, // Default value, can be edited later
+        categoryId: _selectedCategoryId!,
+        manufacturer: _selectedModel!['manufacturer'] ?? '',
+        model: _selectedModel!['model'] ?? '',
+        powerConsumption: (_selectedModel!['power_consumption'] is num) 
+            ? _selectedModel!['power_consumption'].toDouble() 
+            : double.parse(_selectedModel!['power_consumption'].toString()),
       );
       
-        if (!mounted) return;
+      if (!mounted) return;
       Navigator.of(context).pop();
       widget.onSave();
       
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            backgroundColor: Colors.green, 
-            content: Text('device_added'.tr(context), style: const TextStyle(color: Colors.white)),
-            duration: const Duration(seconds: 1),
-          ),
-        );
-      } catch (e) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.green, 
+          content: Text('device_added'.tr(context), style: const TextStyle(color: Colors.white)),
+          duration: const Duration(seconds: 1),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
           backgroundColor: Colors.redAccent, 
           content: Text('Error adding device: $e', style: const TextStyle(color: Colors.white)),
-            duration: const Duration(seconds: 1),
-          ),
-        );
+          duration: const Duration(seconds: 1),
+        ),
+      );
     }
   }
 
@@ -705,136 +1019,296 @@ class _AddDeviceDialogState extends State<AddDeviceDialog> {
     final themeProvider = Provider.of<ThemeProvider>(context);
     final bool isDarkTheme = themeProvider.isDarkTheme;
     
-    return AlertDialog(
+    return Dialog(
       backgroundColor: isDarkTheme ? Colors.grey[900] : Colors.white,
-      title: Text('add_device'.tr(context),
-          style: GoogleFonts.poppins(
-            color: isDarkTheme ? Colors.white : Colors.black, 
-            fontSize: 20, 
-            fontWeight: FontWeight.bold
-          )),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(20),
-      ),
-      content: SingleChildScrollView(
-        child: Form(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextFormField(
-                decoration: InputDecoration(
-                  labelText: 'Search',
-                  labelStyle: GoogleFonts.poppins(color: isDarkTheme ? Colors.white70 : Colors.black54),
-                  enabledBorder: UnderlineInputBorder(
-                    borderSide: BorderSide(color: isDarkTheme ? Colors.white70 : Colors.black38),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      child: Container(
+        width: MediaQuery.of(context).size.width * 0.95,
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.85,
+        ),
+        padding: const EdgeInsets.all(20.0),
+        child: _isLoading
+          ? Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(color: Colors.blueAccent),
+                  const SizedBox(height: 16),
+                  Text('Loading devices...', 
+                    style: GoogleFonts.poppins(
+                      color: isDarkTheme ? Colors.white70 : Colors.black54
+                    )
+                  )
+                ],
+              )
+            )
+          : SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Add Device',
+                    style: GoogleFonts.poppins(
+                      color: isDarkTheme ? Colors.white : Colors.black, 
+                      fontSize: 28, 
+                      fontWeight: FontWeight.bold
+                    )
                   ),
-                  focusedBorder: UnderlineInputBorder(
-                    borderSide: BorderSide(color: Colors.blueAccent),
+                  const SizedBox(height: 30),
+                  
+                  // Category Dropdown
+                  Text(
+                    'Category',
+                    style: GoogleFonts.poppins(
+                      color: isDarkTheme ? Colors.white70 : Colors.black54,
+                      fontSize: 16,
+                    ),
                   ),
-                  floatingLabelBehavior: FloatingLabelBehavior.auto,
-                  contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
-                ),
-                onChanged: (value) {
-                  setState(() {
-                    _searchQuery = value;
-                    _filterDevices();
-                  });
-                },
-              ),
-              const SizedBox(height: 16),
-              DropdownButtonFormField<int>(
-                value: _selectedCategoryId,
-                hint: Text("select_category".tr(context), style: GoogleFonts.poppins(color: isDarkTheme ? Colors.white70 : Colors.black54)),
-                items: widget.categories.map((category) {
-                  return DropdownMenuItem<int>(
-                    value: int.parse(category['id'] as String),
-                    child: Text(category['name'] as String, style: GoogleFonts.poppins(color: isDarkTheme ? Colors.white : Colors.black)),
-                  );
-                }).toList(),
-                onChanged: (value) {
-                  setState(() {
-                    _selectedCategoryId = value;
-                    _filterDevices();
-                  });
-                },
-                validator: (value) => value == null ? "category".tr(context) : null,
-                decoration: InputDecoration(
-                  labelText: "category".tr(context),
-                  labelStyle: GoogleFonts.poppins(color: isDarkTheme ? Colors.white70 : Colors.black54),
-                  enabledBorder: UnderlineInputBorder(
-                    borderSide: BorderSide(color: isDarkTheme ? Colors.white70 : Colors.black38),
-                  ),
-                  focusedBorder: UnderlineInputBorder(
-                    borderSide: BorderSide(color: Colors.blueAccent),
-                  ),
-                  floatingLabelBehavior: FloatingLabelBehavior.auto,
-                  contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
-                ),
-                dropdownColor: isDarkTheme ? Colors.grey[800] : Colors.grey[100],
-                style: GoogleFonts.poppins(color: isDarkTheme ? Colors.white : Colors.black),
-              ),
-              const SizedBox(height: 16),
-              Expanded(
-                child: _isLoading
-                    ? CircularProgressIndicator()
-                    : _filteredDevices.isEmpty
-                        ? Center(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                  Icons.devices,
-                                  size: 100,
-                                  color: Colors.grey,
-                                ),
-                                const SizedBox(height: 20),
-                                Text(
-                                  "no_devices_found".tr(context),
-                                  style: GoogleFonts.poppins(
-                                    fontSize: 24,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.white,
-                                  ),
-                                ),
-                              ],
+                  const SizedBox(height: 5),
+                  Container(
+                    decoration: BoxDecoration(
+                      color: isDarkTheme ? Colors.white.withAlpha(20) : Colors.grey[100],
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: DropdownButtonFormField<int>(
+                      value: _selectedCategoryId,
+                      hint: Text("Select Category", 
+                        style: GoogleFonts.poppins(
+                          color: isDarkTheme ? Colors.white70 : Colors.black54
+                        )
+                      ),
+                      items: widget.categories.map((category) {
+                        return DropdownMenuItem<int>(
+                          value: int.parse(category['id'].toString()),
+                          child: Text(
+                            category['name'].toString(),
+                            style: GoogleFonts.poppins(
+                              color: isDarkTheme ? Colors.white : Colors.black
                             ),
-                          )
-                        : ListView.builder(
-                            itemCount: _filteredDevices.length,
-                            itemBuilder: (context, index) {
-                              final device = _filteredDevices[index];
-                              return ListTile(
-                                title: Text(
-                                  '${device['manufacturer'] ?? 'Unknown'} ${device['model'] ?? ''}',
-                                  style: GoogleFonts.poppins(
-                                    color: Colors.black,
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                                onTap: () {
-                                  _addDeviceToUser(device);
-                                },
-                              );
-                            },
                           ),
+                        );
+                      }).toList(),
+                      onChanged: (value) {
+                        setState(() {
+                          _selectedCategoryId = value;
+                        });
+                        _updateManufacturers();
+                      },
+                      decoration: InputDecoration(
+                        border: InputBorder.none,
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 8
+                        ),
+                      ),
+                      dropdownColor: isDarkTheme ? Colors.grey[800] : Colors.white,
+                      icon: Icon(
+                        Icons.arrow_drop_down,
+                        color: isDarkTheme ? Colors.white70 : Colors.black54,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  
+                  // Divider line
+                  Container(
+                    height: 1,
+                    color: isDarkTheme ? Colors.white.withAlpha(15) : Colors.grey.withAlpha(30),
+                  ),
+                  const SizedBox(height: 24),
+                  
+                  // Manufacturer Dropdown
+                  Text(
+                    'Manufacturer',
+                    style: GoogleFonts.poppins(
+                      color: isDarkTheme 
+                        ? _selectedCategoryId == null ? Colors.grey : Colors.white70
+                        : _selectedCategoryId == null ? Colors.grey : Colors.black54,
+                      fontSize: 16,
+                    ),
+                  ),
+                  const SizedBox(height: 5),
+                  Container(
+                    decoration: BoxDecoration(
+                      color: isDarkTheme 
+                        ? _selectedCategoryId == null ? Colors.white.withAlpha(10) : Colors.white.withAlpha(20)
+                        : _selectedCategoryId == null ? Colors.grey[200]!.withAlpha(100) : Colors.grey[100],
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: IgnorePointer(
+                      ignoring: _selectedCategoryId == null,
+                      child: DropdownButtonFormField<String>(
+                        value: _selectedManufacturer,
+                        hint: Text("Select Manufacturer", 
+                          style: GoogleFonts.poppins(
+                            color: isDarkTheme ? Colors.white70 : Colors.black54
+                          )
+                        ),
+                        items: _manufacturersList.map((manufacturer) {
+                          return DropdownMenuItem<String>(
+                            value: manufacturer,
+                            child: Text(
+                              manufacturer,
+                              style: GoogleFonts.poppins(
+                                color: isDarkTheme ? Colors.white : Colors.black
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                        onChanged: (value) {
+                          setState(() {
+                            _selectedManufacturer = value;
+                          });
+                          _updateModels();
+                        },
+                        decoration: InputDecoration(
+                          border: InputBorder.none,
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 8
+                          ),
+                        ),
+                        dropdownColor: isDarkTheme ? Colors.grey[800] : Colors.white,
+                        icon: Icon(
+                          Icons.arrow_drop_down,
+                          color: _selectedCategoryId == null
+                            ? Colors.grey
+                            : isDarkTheme ? Colors.white70 : Colors.black54,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  
+                  // Divider line
+                  Container(
+                    height: 1,
+                    color: isDarkTheme ? Colors.white.withAlpha(15) : Colors.grey.withAlpha(30),
+                  ),
+                  const SizedBox(height: 24),
+                  
+                  // Model Dropdown
+                  Text(
+                    'Model',
+                    style: GoogleFonts.poppins(
+                      color: isDarkTheme 
+                        ? _selectedManufacturer == null ? Colors.grey : Colors.white70
+                        : _selectedManufacturer == null ? Colors.grey : Colors.black54,
+                      fontSize: 16,
+                    ),
+                  ),
+                  const SizedBox(height: 5),
+                  Container(
+                    decoration: BoxDecoration(
+                      color: isDarkTheme 
+                        ? _selectedManufacturer == null ? Colors.white.withAlpha(10) : Colors.white.withAlpha(20)
+                        : _selectedManufacturer == null ? Colors.grey[200]!.withAlpha(100) : Colors.grey[100],
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: IgnorePointer(
+                      ignoring: _selectedManufacturer == null,
+                      child: DropdownButtonFormField<String>(
+                        value: _selectedModel != null ? _selectedModel!['model']?.toString() : null,
+                        hint: Text("Select Model", 
+                          style: GoogleFonts.poppins(
+                            color: isDarkTheme ? Colors.white70 : Colors.black54
+                          )
+                        ),
+                        items: _modelsList.map((model) {
+                          return DropdownMenuItem<String>(
+                            value: model['model']?.toString(),
+                            child: Text(
+                              model['model']?.toString() ?? 'Unknown',
+                              style: GoogleFonts.poppins(
+                                color: isDarkTheme ? Colors.white : Colors.black
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                        onChanged: (value) {
+                          if (value != null) {
+                            _updateSelectedModel(value);
+                          }
+                        },
+                        decoration: InputDecoration(
+                          border: InputBorder.none,
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 8
+                          ),
+                        ),
+                        dropdownColor: isDarkTheme ? Colors.grey[800] : Colors.white,
+                        icon: Icon(
+                          Icons.arrow_drop_down,
+                          color: _selectedManufacturer == null
+                            ? Colors.grey
+                            : isDarkTheme ? Colors.white70 : Colors.black54,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  
+                  // Divider line
+                  Container(
+                    height: 1,
+                    color: isDarkTheme ? Colors.white.withAlpha(15) : Colors.grey.withAlpha(30),
+                  ),
+                  const SizedBox(height: 24),
+                  
+                  // Power Consumption Display
+                  Text(
+                    'Power Consumption: ${_selectedModel != null ? (_selectedModel!['power_consumption'] ?? "N/A") : "N/A"} kW',
+                    style: GoogleFonts.poppins(
+                      color: isDarkTheme ? Colors.white : Colors.black,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 30),
+                  
+                  // Buttons
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      TextButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        child: Text('Cancel', 
+                          style: GoogleFonts.poppins(
+                            color: Colors.redAccent,
+                            fontSize: 16,
+                          )
+                        ),
+                      ),
+                      ElevatedButton(
+                        onPressed: _selectedModel != null ? _addDeviceToUser : null,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.blueAccent,
+                          foregroundColor: Colors.white,
+                          disabledBackgroundColor: Colors.grey,
+                          disabledForegroundColor: Colors.white70,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 30,
+                            vertical: 12,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(30),
+                          ),
+                        ),
+                        child: Text('Add Device',
+                          style: GoogleFonts.poppins(
+                            fontSize: 16,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
-            ],
-          ),
-        ),
+            ),
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: Text('cancel'.tr(context), style: GoogleFonts.poppins(color: isDarkTheme ? Colors.white70 : Colors.black54)),
-        ),
-      ],
     );
-  }
-
-  @override
-  void dispose() {
-    super.dispose();
   }
 }
 
@@ -855,22 +1329,27 @@ class _CustomDeviceDialogState extends State<CustomDeviceDialog> {
   String? _customManufacturer;
   String? _customModel;
   double? _customPowerConsumption;
-  double? _customUsageHours;
-  final _customUsageHoursController = TextEditingController();
   final _customPowerController = TextEditingController();
 
   Future<void> _saveCustomDevice() async {
     if (_customFormKey.currentState!.validate()) {
       try {
         final userId = FirebaseAuth.instance.currentUser!.uid;
+        // Get today's date in YYYY-MM-DD format
+        String today = DateTime.now().toIso8601String().split('T')[0];
+        
         await FirebaseFirestore.instance.collection('devices').add({
           'category_id': _customCategory,
           'manufacturer': _customManufacturer,
           'model': _customModel,
           'power_consumption': _customPowerConsumption,
-          'usage_hours_per_day': _customUsageHours,
           'is_user_added': 1,
           'user_id': userId,
+          'daily_uptime': 0.0,
+          'total_uptime': 0.0,
+          'daily_consumption': 0.0,
+          'last_reset': today,
+          'last_active': null,
         });
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1009,37 +1488,6 @@ class _CustomDeviceDialogState extends State<CustomDeviceDialog> {
                   _customPowerConsumption = double.tryParse(value) ?? 0.0;
                 },
               ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _customUsageHoursController,
-                keyboardType: TextInputType.number,
-                style: GoogleFonts.poppins(color: isDarkTheme ? Colors.white : Colors.black),
-                decoration: InputDecoration(
-                  labelText: 'Usage Hours per Day',
-                  labelStyle: GoogleFonts.poppins(color: isDarkTheme ? Colors.white70 : Colors.black54),
-                  enabledBorder: UnderlineInputBorder(
-                    borderSide: BorderSide(color: isDarkTheme ? Colors.white70 : Colors.black38),
-                  ),
-                  focusedBorder: UnderlineInputBorder(
-                    borderSide: BorderSide(color: Colors.blueAccent),
-                  ),
-                  floatingLabelBehavior: FloatingLabelBehavior.auto,
-                  contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
-                ),
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Enter usage hours';
-                  }
-                  final hours = double.tryParse(value);
-                  if (hours == null || hours <= 0) {
-                    return 'Usage hours must be a positive number';
-                  }
-                  return null;
-                },
-                onChanged: (value) {
-                  _customUsageHours = double.tryParse(value) ?? 0.0;
-                },
-              ),
             ],
           ),
         ),
@@ -1060,7 +1508,6 @@ class _CustomDeviceDialogState extends State<CustomDeviceDialog> {
 
   @override
   void dispose() {
-    _customUsageHoursController.dispose();
     _customPowerController.dispose();
     super.dispose();
   }
@@ -1086,7 +1533,6 @@ class _EditDeviceDialogState extends State<EditDeviceDialog> {
   late TextEditingController _manufacturerController;
   late TextEditingController _modelController;
   late TextEditingController _powerConsumptionController;
-  late TextEditingController _hoursPerDayController;
   int? _selectedCategoryId;
   bool _isLoading = false;
 
@@ -1096,7 +1542,6 @@ class _EditDeviceDialogState extends State<EditDeviceDialog> {
     _manufacturerController = TextEditingController(text: widget.device['manufacturer']);
     _modelController = TextEditingController(text: widget.device['model']);
     _powerConsumptionController = TextEditingController(text: widget.device['power_consumption'].toString());
-    _hoursPerDayController = TextEditingController(text: widget.device['usage_hours_per_day'].toString());
     
     if (widget.device['category_id'] != null) {
       if (widget.device['category_id'] is int) {
@@ -1112,7 +1557,6 @@ class _EditDeviceDialogState extends State<EditDeviceDialog> {
     _manufacturerController.dispose();
     _modelController.dispose();
     _powerConsumptionController.dispose();
-    _hoursPerDayController.dispose();
     super.dispose();
   }
 
@@ -1120,7 +1564,6 @@ class _EditDeviceDialogState extends State<EditDeviceDialog> {
     if (_manufacturerController.text.isEmpty || 
         _modelController.text.isEmpty || 
         _powerConsumptionController.text.isEmpty ||
-        _hoursPerDayController.text.isEmpty ||
         _selectedCategoryId == null) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -1146,7 +1589,6 @@ class _EditDeviceDialogState extends State<EditDeviceDialog> {
         manufacturer: _manufacturerController.text,
         model: _modelController.text,
         powerConsumption: double.parse(_powerConsumptionController.text),
-        usageHoursPerDay: double.parse(_hoursPerDayController.text),
       );
         
         if (!mounted) return;
@@ -1298,37 +1740,6 @@ class _EditDeviceDialogState extends State<EditDeviceDialog> {
                 },
                 onChanged: (value) {
                   _powerConsumptionController.text = value;
-                },
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _hoursPerDayController,
-                keyboardType: TextInputType.number,
-                style: GoogleFonts.poppins(color: isDarkTheme ? Colors.white : Colors.black),
-                decoration: InputDecoration(
-                  labelText: 'Usage Hours per Day',
-                  labelStyle: GoogleFonts.poppins(color: isDarkTheme ? Colors.white70 : Colors.black54),
-                  enabledBorder: UnderlineInputBorder(
-                    borderSide: BorderSide(color: isDarkTheme ? Colors.white70 : Colors.black38),
-                  ),
-                  focusedBorder: UnderlineInputBorder(
-                    borderSide: BorderSide(color: Colors.blueAccent),
-                  ),
-                  floatingLabelBehavior: FloatingLabelBehavior.auto,
-                  contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
-                ),
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Please enter usage hours';
-                  }
-                  final hours = double.tryParse(value);
-                  if (hours == null || hours <= 0) {
-                    return 'Usage hours must be a positive number';
-                  }
-                  return null;
-                },
-                onChanged: (value) {
-                  _hoursPerDayController.text = value;
                 },
               ),
             ],

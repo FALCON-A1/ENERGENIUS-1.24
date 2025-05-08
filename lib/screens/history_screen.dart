@@ -2007,7 +2007,9 @@ class HistoryScreenState extends State<HistoryScreen> {
                               ),
                               const SizedBox(height: 8),
                               ...buildDeviceBreakdownListForDay(
-                                data['devices_consumption'] as Map<String, dynamic>,
+                                data['devices_consumption'] != null 
+                                  ? (data['devices_consumption'] as Map<String, dynamic>) 
+                                  : <String, dynamic>{},
                                 consumption,
                                 isDarkTheme
                               ),
@@ -2051,7 +2053,9 @@ class HistoryScreenState extends State<HistoryScreen> {
                                   const SizedBox(height: 6),
                                   Text(
                                     // Get tip based on device breakdown - use original data
-                                    _getTipForDailyConsumption(data['devices_consumption'] as Map<String, dynamic>),
+                                    _getTipForDailyConsumption(data['devices_consumption'] != null 
+                                      ? (data['devices_consumption'] as Map<String, dynamic>) 
+                                      : <String, dynamic>{}),
                                     style: GoogleFonts.poppins(
                                       color: isDarkTheme ? Colors.white70 : Colors.black87,
                                       fontSize: 13,

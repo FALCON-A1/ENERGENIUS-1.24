@@ -73,6 +73,19 @@ class SignupScreenState extends State<SignupScreen> with SingleTickerProviderSta
       return;
     }
 
+    // Check if country is selected
+    if (_selectedCountry == null || _selectedCountry!.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("all_fields_required".tr(context), style: TextStyle(color: Colors.white)), 
+          backgroundColor: Colors.red,
+          duration: Duration(seconds: 1),
+        ),
+      );
+      return;
+    }
+
     setState(() => _isLoading = true);
     try {
       UserCredential userCredential = await _auth.createUserWithEmailAndPassword(
@@ -80,28 +93,45 @@ class SignupScreenState extends State<SignupScreen> with SingleTickerProviderSta
         password: _passwordController.text.trim(),
       );
 
+      // Create user document in Firestore with proper data
       await _firestore.collection('users').doc(userCredential.user!.uid).set({
         'first_name': _firstNameController.text.trim(),
         'last_name': _lastNameController.text.trim(),
         'email': _emailController.text.trim(),
         'dob': _dobController.text.trim(),
         'country': _selectedCountry,
+        'uid': userCredential.user!.uid,
         'created_at': FieldValue.serverTimestamp(),
       });
+      
+      // Update user display name in Firebase Auth
+      await userCredential.user!.updateProfile(
+        displayName: _firstNameController.text.trim()
+      );
       
       // Initialize database and consumption history for the new user
       await DatabaseHelper.instance.initialize(userCredential.user!.uid);
       await DatabaseHelper.instance.initializeUserConsumption(userCredential.user!.uid);
 
       if (!mounted) return;
-      replaceWithFade(context, LoginScreen());
+      // Navigate to main screen instead of login screen
+      replaceWithFade(context, MainScreen());
+      
+      // Show success message
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("Account created successfully!", style: TextStyle(color: Colors.white)), 
+          backgroundColor: Colors.green,
+          duration: Duration(seconds: 2),
+        ),
+      );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(e.toString(), style: TextStyle(color: Colors.white)), 
           backgroundColor: Colors.red,
-          duration: Duration(seconds: 1),
+          duration: Duration(seconds: 2),
         ),
       );
     } finally {

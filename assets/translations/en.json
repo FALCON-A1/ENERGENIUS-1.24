@@ -25,6 +25,7 @@
   "model": "Model",
   "power_consumption": "Power Consumption",
   "usage_hours": "Usage Hours",
+  "uptime": "Device Uptime",
   "daily_consumption": "Daily Consumption",
   "weekly_consumption": "Weekly Consumption",
   "monthly_consumption": "Monthly Consumption",
@@ -192,9 +193,17 @@
   "midday_peak_tip": "Your energy usage peaks at midday. Try using natural light instead of artificial lighting when possible.",
   "general_energy_tip": "For maximum energy efficiency, unplug appliances when not in use and use smart power strips for electronics.",
   
+  "uptime_description": "Tracks how long your device has been active today. Resets at midnight.",
+  "daily_consumption_description": "Energy used by this device today. Calculated based on actual uptime. Resets at midnight.",
+  
   "refrigerator_tip": "Your refrigerator is consuming a significant amount of energy. Try setting the temperature to 37-40°F (3-4°C) for the fridge and 0-5°F (-18 to -15°C) for the freezer for optimal efficiency.",
   "ac_tip": "Your air conditioner is your highest energy consumer. Raise the temperature by 1-2 degrees to save up to 10% on cooling costs, and consider using a programmable thermostat.",
   "washer_tip": "To reduce your washing machine's energy use, wash with cold water when possible and run full loads. Consider air-drying clothes instead of using a dryer.",
   "tv_tip": "Your TV and entertainment devices use significant power. Use power-saving modes, reduce brightness, and turn them off completely (not standby) when not in use.",
-  "lighting_tip": "Switch to LED bulbs to reduce lighting energy use by up to 75%. Turn off lights when not needed and use natural light during daytime."
+  "lighting_tip": "Switch to LED bulbs to reduce lighting energy use by up to 75%. Turn off lights when not needed and use natural light during daytime.",
+  
+  "authentication_required": "Authentication Required",
+  "enter_password_to_continue": "Please enter your password to continue with account deletion.",
+  "authenticate": "Authenticate",
+  "authentication_failed": "Authentication failed. Please try again."
 } 
