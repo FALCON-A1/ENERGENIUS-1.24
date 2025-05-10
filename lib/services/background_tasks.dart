@@ -1,4 +1,5 @@
-import 'package:workmanager/workmanager.dart';
+// Temporarily commented out for release build
+// import 'package:workmanager/workmanager.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../database/database_helper.dart';
 import 'dart:developer' as developer;
@@ -10,6 +11,8 @@ const String midnightTaskName = 'energenius.midnight.reset';
 // Workmanager callback dispatcher - must be top-level function
 @pragma('vm:entry-point')
 void callbackDispatcher() {
+  // Temporarily commented out for release build
+  /*
   Workmanager().executeTask((taskName, inputData) async {
     try {
       // Get the current user ID from SharedPreferences
@@ -51,21 +54,28 @@ void callbackDispatcher() {
       return Future.value(false);
     }
   });
+  */
+  return;
 }
 
 class BackgroundTasks {
   // Initialize the workmanager
   static Future<void> initialize() async {
+    // Temporarily commented out for release build
+    /*
     await Workmanager().initialize(
       callbackDispatcher,
       isInDebugMode: false,
     );
+    */
     
     developer.log("Background tasks initialized");
   }
   
   // Register periodic task to update consumption data
   static Future<void> registerPeriodicTask() async {
+    // Temporarily commented out for release build
+    /*
     await Workmanager().registerPeriodicTask(
       periodicTaskName,
       periodicTaskName,
@@ -76,6 +86,7 @@ class BackgroundTasks {
       ),
       existingWorkPolicy: ExistingWorkPolicy.replace,
     );
+    */
     
     developer.log("Registered periodic background task");
   }
@@ -92,11 +103,14 @@ class BackgroundTasks {
     await prefs.setString('next_midnight_reset', tomorrow.toIso8601String());
     
     // Schedule the one-time task
+    // Temporarily commented out for release build
+    /*
     await Workmanager().registerOneOffTask(
       midnightTaskName,
       midnightTaskName,
       initialDelay: timeUntilMidnight,
     );
+    */
     
     developer.log("Scheduled midnight reset task for ${timeUntilMidnight.inHours} hours and ${timeUntilMidnight.inMinutes % 60} minutes from now");
   }
@@ -109,7 +123,10 @@ class BackgroundTasks {
   
   // Cancel all background tasks
   static Future<void> cancelAllTasks() async {
+    // Temporarily commented out for release build
+    /*
     await Workmanager().cancelAll();
+    */
     developer.log("Cancelled all background tasks");
   }
 } 

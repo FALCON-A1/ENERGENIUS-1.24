@@ -44,8 +44,9 @@ void main() async {
       _startConsumptionDataTimer(currentUser.uid);
       
       // Initialize background tasks
-      await BackgroundTasks.initialize();
-      await BackgroundTasks.registerAllTasks();
+      // Temporarily comment out WorkManager initialization for building release APK
+      // await BackgroundTasks.initialize();
+      // await BackgroundTasks.registerAllTasks();
     }
     
     // Initialize the background service
@@ -160,7 +161,7 @@ void _setupAuthListener() {
       });
       
       // Register background tasks for the user
-      BackgroundTasks.registerAllTasks();
+      // BackgroundTasks.registerAllTasks();
       
       developer.log("Auth state changed: User signed in - ${user.uid}");
     } else {
@@ -176,7 +177,7 @@ void _setupAuthListener() {
       });
       
       // Cancel background tasks
-      BackgroundTasks.cancelAllTasks();
+      // BackgroundTasks.cancelAllTasks();
       
       developer.log("Auth state changed: User signed out");
     }
@@ -223,7 +224,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
       await prefs.setString('app_state', 'paused');
       
       // Make sure background tasks are registered
-      await BackgroundTasks.registerAllTasks();
+      // BackgroundTasks.registerAllTasks();
       
       // Notify the background service
       final service = FlutterBackgroundService();
@@ -277,7 +278,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
       await prefs.setString('app_last_active', DateTime.now().toIso8601String());
       
       // Ensure background tasks are registered
-      await BackgroundTasks.registerAllTasks();
+      // BackgroundTasks.registerAllTasks();
       
       // Notify the background service
       final service = FlutterBackgroundService();

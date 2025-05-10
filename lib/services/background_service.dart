@@ -7,7 +7,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../database/database_helper.dart';
 import 'dart:developer' as developer;
-import 'background_tasks.dart';
+// Temporarily comment out for building release APK
+// import 'background_tasks.dart';
 
 class BackgroundService {
   static final BackgroundService _instance = BackgroundService._internal();
@@ -32,10 +33,12 @@ class BackgroundService {
     await _setupNotifications();
     
     // Initialize Workmanager for persistent background tasks
-    await BackgroundTasks.initialize();
+    // Temporarily comment out for building release APK
+    // await BackgroundTasks.initialize();
     
     // Register periodic task that runs even when app is closed
-    await BackgroundTasks.registerAllTasks();
+    // Temporarily comment out for building release APK
+    // await BackgroundTasks.registerAllTasks();
     
     // Configure the foreground service
     await service.configure(
@@ -118,7 +121,8 @@ class BackgroundService {
         await DatabaseHelper.instance.syncAndFillMissingData(userId);
         
         // Re-register background tasks to ensure they're running
-        await BackgroundTasks.registerAllTasks();
+        // Temporarily comment out for building release APK
+        // await BackgroundTasks.registerAllTasks();
         
         developer.log("Background service handled app resume for user: $userId");
       }
@@ -190,26 +194,24 @@ class BackgroundService {
   // Recover from app closure
   static Future<void> _recoverFromAppClosure() async {
     try {
-      if (FirebaseAuth.instance.currentUser != null) {
-        final userId = FirebaseAuth.instance.currentUser!.uid;
-        final prefs = await SharedPreferences.getInstance();
+      final prefs = await SharedPreferences.getInstance();
+      final userId = prefs.getString('current_user_id');
+      
+      if (userId != null) {
+        // Check if we missed a midnight reset
+        await _checkForMissedMidnightReset(userId);
         
-        // Check when the app was last active
-        String? lastActiveStr = prefs.getString('app_last_active');
-        if (lastActiveStr != null) {
-          DateTime lastActive = DateTime.tryParse(lastActiveStr) ?? DateTime.now();
-          DateTime now = DateTime.now();
-          
-          // If it's been more than 5 minutes since the app was last active
-          if (now.difference(lastActive).inMinutes > 5) {
-            // Sync and fill missing data
-            await DatabaseHelper.instance.syncAndFillMissingData(userId);
-            developer.log("Recovered from app closure for user: $userId");
-          }
-        }
+        // Sync and fill missing data
+        await DatabaseHelper.instance.syncAndFillMissingData(userId);
         
-        // Update the last active timestamp
-        await prefs.setString('app_last_active', DateTime.now().toIso8601String());
+        // Ensure all devices are properly tracked
+        await _updateActiveDevices(userId);
+        
+        // Re-register background tasks
+        // Temporarily comment out for building release APK
+        // await BackgroundTasks.registerAllTasks();
+        
+        developer.log("Recovered from app closure for user: $userId");
       }
     } catch (e) {
       developer.log("Error recovering from app closure: $e");
