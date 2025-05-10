@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:developer' as developer;
+import 'package:shared_preferences/shared_preferences.dart';
 
 class DatabaseHelper {
   static final DatabaseHelper instance = DatabaseHelper._privateConstructor();
@@ -344,33 +345,48 @@ class DatabaseHelper {
       // These coefficients represent typical home energy usage patterns
       Map<int, double> hourlyPatterns = {
         0: 0.4,  // 12 AM - low usage (sleeping)
-        1: 0.3,
-        2: 0.3,
-        3: 0.3,
-        4: 0.3,
+        1: 0.3,  2: 0.3,  3: 0.3,  4: 0.3,
         5: 0.5,  // 5 AM - starting to wake up
         6: 0.8,  // Morning routines begin
         7: 1.2,  // Morning peak (breakfast, showers)
         8: 1.3,
         9: 1.0,  // People leaving for work/school
-        10: 0.8,
-        11: 0.7,
-        12: 0.9,  // Noon - lunch time
-        13: 0.8,
-        14: 0.7,
-        15: 0.7,
-        16: 0.8,
-        17: 1.2,  // 5 PM - returning home
-        18: 1.5,  // Evening peak (dinner preparation)
-        19: 1.8,  // Peak evening usage
-        20: 1.7,  // High evening usage
-        21: 1.4,  // Starting to wind down
-        22: 1.0,  // Getting ready for bed
-        23: 0.6   // Late night, reduced usage
+        10: 0.8, 11: 0.7,
+        12: 0.9, // Noon - lunch time
+        13: 0.8, 14: 0.7, 15: 0.7, 16: 0.8,
+        17: 1.2, // 5 PM - returning home
+        18: 1.5, // Evening peak (dinner preparation)
+        19: 1.8, // Peak evening usage
+        20: 1.7, // High evening usage
+        21: 1.4, // Starting to wind down
+        22: 1.0, // Getting ready for bed
+        23: 0.6  // Late night, reduced usage
       };
       
-      // Calculate hourly consumption for current hour based on device active status and patterns
-      double hourlyConsumption = 0.0;
+      // Get reference to the hourly consumption collection
+      DocumentReference dailyDocRef = _firestore
+          .collection('users')
+          .doc(userId)
+          .collection('consumption_history')
+          .doc(today);
+      
+      // First get existing hourly data, if any
+      DocumentSnapshot doc = await dailyDocRef.get();
+      Map<String, dynamic> existingHourlyData = {};
+      Map<String, dynamic> existingDevicesConsumption = {};
+      
+      if (doc.exists) {
+        Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+        if (data.containsKey('hourly_consumption')) {
+          existingHourlyData = Map<String, dynamic>.from(data['hourly_consumption']);
+        }
+        if (data.containsKey('devices_consumption')) {
+          existingDevicesConsumption = Map<String, dynamic>.from(data['devices_consumption']);
+        }
+      }
+      
+      // Calculate current hour's consumption
+      double currentHourConsumption = 0.0;
       Map<String, double> deviceContributions = {};
       
       for (var device in devices) {
@@ -396,7 +412,7 @@ class DatabaseHelper {
           deviceHourlyContribution = (devicePower * dailyUptime / 24.0) * (hourlyPatterns[currentHour] ?? 1.0);
         }
         
-        hourlyConsumption += deviceHourlyContribution;
+        currentHourConsumption += deviceHourlyContribution;
         
         // Store the individual device contribution
         if (deviceId.isNotEmpty) {
@@ -404,30 +420,38 @@ class DatabaseHelper {
         }
       }
       
-      // Get reference to the hourly consumption collection
-      DocumentReference dailyDocRef = _firestore
-          .collection('users')
-          .doc(userId)
-          .collection('consumption_history')
-          .doc(today);
+      // Add current hour data to existing data
+      existingHourlyData[currentHour.toString()] = currentHourConsumption;
       
-      // First get existing hourly data, if any
-      DocumentSnapshot doc = await dailyDocRef.get();
-      Map<String, dynamic> existingHourlyData = {};
-      Map<String, dynamic> existingDevicesConsumption = {};
-      
-      if (doc.exists) {
-        Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
-        if (data.containsKey('hourly_consumption')) {
-          existingHourlyData = Map<String, dynamic>.from(data['hourly_consumption']);
+      // Fill in missing hours with estimated data based on patterns and device usage
+      // This ensures we have data for all hours, not just when the app is active
+      for (int hour = 0; hour < 24; hour++) {
+        // Skip the current hour as we've already calculated it
+        if (hour == currentHour || existingHourlyData.containsKey(hour.toString())) {
+          continue;
         }
-        if (data.containsKey('devices_consumption')) {
-          existingDevicesConsumption = Map<String, dynamic>.from(data['devices_consumption']);
+        
+        // For past hours of today that have no data, estimate based on device usage patterns
+        if (hour < currentHour) {
+          double estimatedHourlyConsumption = 0.0;
+          
+          for (var device in devices) {
+            double devicePower = device['power_consumption'] ?? 0.0;
+            double dailyUptime = device['daily_uptime'] ?? 0.0;
+            
+            // Only estimate if the device has some recorded uptime today
+            if (dailyUptime > 0) {
+              // Calculate estimated hourly consumption based on patterns
+              double hourlyFactor = hourlyPatterns[hour] ?? 1.0;
+              double deviceEstimatedContribution = (devicePower * dailyUptime / 24.0) * hourlyFactor;
+              estimatedHourlyConsumption += deviceEstimatedContribution;
+            }
+          }
+          
+          // Add the estimated data
+          existingHourlyData[hour.toString()] = estimatedHourlyConsumption;
         }
       }
-      
-      // Add current hour data to existing data
-      existingHourlyData[currentHour.toString()] = hourlyConsumption;
       
       // Update device-specific consumption data
       deviceContributions.forEach((deviceId, consumption) {
@@ -479,9 +503,10 @@ class DatabaseHelper {
         'total_consumption': calculatedDailyTotal,
         'date': today,
         'last_updated': FieldValue.serverTimestamp(),
+        'hours_recorded': existingHourlyData.keys.length,
       }, SetOptions(merge: true));
       
-      developer.log("Recorded hourly consumption for hour $currentHour: $hourlyConsumption kWh, total daily: $calculatedDailyTotal kWh");
+      developer.log("Recorded hourly consumption for hour $currentHour: $currentHourConsumption kWh, total daily: $calculatedDailyTotal kWh, hours recorded: ${existingHourlyData.keys.length}");
     } catch (e) {
       developer.log("Error recording hourly consumption: $e");
     }
@@ -836,22 +861,118 @@ class DatabaseHelper {
       // Get all user devices
       List<Map<String, dynamic>> devices = await getUserDevices(userId);
       
+      // Store last check time for midnight reset reliability
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('last_reset_check', DateTime.now().toIso8601String());
+      
       for (var device in devices) {
         String deviceId = device['id'];
         String lastReset = device['last_reset'] ?? '';
         
         // If last reset is not today, reset daily counters
         if (lastReset != today) {
+          // Before resetting, capture the final consumption for the previous day
+          if (lastReset.isNotEmpty && lastReset != today) {
+            // Get the previous day's consumption for this device
+            double dailyConsumption = device['daily_consumption'] ?? 0.0;
+            
+            // Ensure the previous day's data is recorded in history
+            await _ensureDailyConsumptionRecorded(userId, lastReset, deviceId, device);
+          }
+          
+          // Now reset the daily counters
           await _firestore.collection('devices').doc(deviceId).update({
             'daily_uptime': 0.0,
             'daily_consumption': 0.0,
             'last_reset': today,
           });
-          developer.log("Reset daily usage for device $deviceId");
+          developer.log("Reset daily usage for device $deviceId from $lastReset to $today");
         }
       }
+      
+      // After checking all devices, ensure today's document exists
+      await _ensureDailyDocumentExists(userId, today);
     } catch (e) {
       developer.log("Error checking and resetting daily usage: $e");
+    }
+  }
+  
+  // Helper method to ensure the daily consumption is recorded for a device
+  Future<void> _ensureDailyConsumptionRecorded(String userId, String date, String deviceId, Map<String, dynamic> device) async {
+    try {
+      DocumentReference docRef = _firestore
+          .collection('users')
+          .doc(userId)
+          .collection('consumption_history')
+          .doc(date);
+          
+      DocumentSnapshot doc = await docRef.get();
+      
+      if (doc.exists) {
+        Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+        Map<String, dynamic> devicesConsumption = data['devices_consumption'] as Map<String, dynamic>? ?? {};
+        
+        // Only update if the device isn't already recorded
+        if (!devicesConsumption.containsKey(deviceId)) {
+          devicesConsumption[deviceId] = {
+            'manufacturer': device['manufacturer'] ?? 'Unknown',
+            'model': device['model'] ?? 'Device',
+            'daily_consumption': device['daily_consumption'] ?? 0.0,
+            'daily_uptime': device['daily_uptime'] ?? 0.0,
+          };
+          
+          await docRef.update({
+            'devices_consumption': devicesConsumption,
+          });
+          developer.log("Recorded final consumption for device $deviceId on $date");
+        }
+      } else {
+        // Create the document if it doesn't exist
+        Map<String, dynamic> devicesConsumption = {};
+        devicesConsumption[deviceId] = {
+          'manufacturer': device['manufacturer'] ?? 'Unknown',
+          'model': device['model'] ?? 'Device',
+          'daily_consumption': device['daily_consumption'] ?? 0.0,
+          'daily_uptime': device['daily_uptime'] ?? 0.0,
+        };
+        
+        await docRef.set({
+          'date': date,
+          'total_consumption': device['daily_consumption'] ?? 0.0,
+          'timestamp': FieldValue.serverTimestamp(),
+          'hourly_consumption': {},
+          'devices_consumption': devicesConsumption,
+        });
+        developer.log("Created missing document for $date with device $deviceId consumption");
+      }
+    } catch (e) {
+      developer.log("Error ensuring daily consumption recorded: $e");
+    }
+  }
+  
+  // Ensure today's document exists
+  Future<void> _ensureDailyDocumentExists(String userId, String date) async {
+    try {
+      DocumentReference docRef = _firestore
+          .collection('users')
+          .doc(userId)
+          .collection('consumption_history')
+          .doc(date);
+          
+      DocumentSnapshot doc = await docRef.get();
+      
+      if (!doc.exists) {
+        await docRef.set({
+          'date': date,
+          'total_consumption': 0.0,
+          'timestamp': FieldValue.serverTimestamp(),
+          'hourly_consumption': {},
+          'devices_consumption': {},
+        });
+        developer.log("Created document for today: $date");
+      }
+    } catch (e) {
+      developer.log("Error ensuring daily document exists: $e");
     }
   }
 
@@ -884,6 +1005,17 @@ class DatabaseHelper {
       
       if (deviceData['last_active'] != null) {
         lastActive = (deviceData['last_active'] as Timestamp).toDate();
+      }
+      
+      // Store the last state of the device before updating
+      final prefs = await SharedPreferences.getInstance();
+      String deviceStateKey = 'device_state_$deviceId';
+      if (isActive) {
+        // Save the active state with timestamp for recovery if app closes
+        await prefs.setString(deviceStateKey, now.toIso8601String());
+      } else {
+        // Clear the active state when device is turned off
+        await prefs.remove(deviceStateKey);
       }
       
       // If an explicit uptime value is provided, use it
@@ -925,7 +1057,31 @@ class DatabaseHelper {
       } 
       // If just turning on, set the last_active timestamp
       else if (isActive) {
+        // Check if we need to recover from an app closure while device was active
+        String? lastActiveStr = prefs.getString(deviceStateKey);
+        if (lastActiveStr != null && lastActive == null) {
+          // Device was active when app closed but database shows inactive
+          DateTime lastActiveTime = DateTime.tryParse(lastActiveStr) ?? now;
+          
+          // Calculate time difference since last active timestamp
+          double secondsSinceLastActive = now.difference(lastActiveTime).inMilliseconds / 1000.0;
+          double hoursSinceLastActive = secondsSinceLastActive / 3600.0;
+          
+          // Only count time if it's reasonable (less than 24 hours)
+          if (hoursSinceLastActive > 0 && hoursSinceLastActive < 24.0) {
+            // Add to uptime counters
+            dailyUptime += hoursSinceLastActive;
+            totalUptime += hoursSinceLastActive;
+            dailyConsumption += (hoursSinceLastActive * powerConsumption);
+            
+            developer.log("Recovered ${hoursSinceLastActive.toStringAsFixed(2)} hours of missed uptime for device $deviceId");
+          }
+        }
+        
         await _firestore.collection('devices').doc(deviceId).update({
+          'daily_uptime': dailyUptime,
+          'total_uptime': totalUptime,
+          'daily_consumption': dailyConsumption,
           'last_active': FieldValue.serverTimestamp(),
         });
       } 
@@ -955,6 +1111,290 @@ class DatabaseHelper {
     } catch (e) {
       developer.log("Error updating device uptime: $e");
       rethrow;
+    }
+  }
+
+  /// Call this on app launch or resume to fill in any missing days/hours and ensure data integrity
+  Future<void> syncAndFillMissingData(String userId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      String? lastSyncStr = prefs.getString('lastSync');
+      DateTime now = DateTime.now();
+      
+      // If no last sync, use a reasonable fallback (24 hours ago)
+      DateTime lastSync = lastSyncStr != null 
+          ? DateTime.tryParse(lastSyncStr) ?? now.subtract(const Duration(hours: 24))
+          : now.subtract(const Duration(hours: 24));
+      
+      developer.log("Syncing data from ${lastSync.toIso8601String()} to ${now.toIso8601String()}");
+      
+      // Get all user devices to estimate their usage during offline period
+      List<Map<String, dynamic>> devices = await getUserDevices(userId);
+      
+      // Check for devices that were active at last sync
+      List<Map<String, dynamic>> activeDevices = devices.where((device) {
+        if (device['last_active'] == null) return false;
+        
+        // Convert Timestamp to DateTime
+        DateTime lastActive;
+        if (device['last_active'] is Timestamp) {
+          lastActive = (device['last_active'] as Timestamp).toDate();
+        } else {
+          return false;
+        }
+        
+        // Device was active at or near last sync time
+        return lastActive.isAfter(lastSync.subtract(const Duration(minutes: 10)));
+      }).toList();
+      
+      // Fill in missing days
+      DateTime day = DateTime(lastSync.year, lastSync.month, lastSync.day);
+      DateTime today = DateTime(now.year, now.month, now.day);
+      
+      while (day.isBefore(today)) {
+        String dayStr = day.toIso8601String().split('T')[0];
+        await _reconstructDayData(userId, dayStr, devices, activeDevices, lastSync, now);
+        day = day.add(const Duration(days: 1));
+      }
+      
+      // Fill in missing hours for today
+      await _reconstructTodayHours(userId, today, now.hour, devices, activeDevices);
+      
+      // Update last sync time
+      prefs.setString('lastSync', now.toIso8601String());
+      
+      // Check and reset daily usage if needed
+      await checkAndResetDailyUsage(userId);
+      
+      developer.log("Completed data sync and reconstruction");
+    } catch (e) {
+      developer.log("Error in syncAndFillMissingData: $e");
+    }
+  }
+
+  /// Reconstruct a full day's data based on known device patterns
+  Future<void> _reconstructDayData(
+    String userId, 
+    String dayStr, 
+    List<Map<String, dynamic>> allDevices,
+    List<Map<String, dynamic>> activeDevices,
+    DateTime lastSync,
+    DateTime now
+  ) async {
+    try {
+      // Check if this day already has data
+      DocumentReference docRef = _firestore
+          .collection('users')
+          .doc(userId)
+          .collection('consumption_history')
+          .doc(dayStr);
+      DocumentSnapshot doc = await docRef.get();
+      
+      if (doc.exists) {
+        // Document exists, check if it has hourly data
+        Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+        if (data.containsKey('hourly_consumption') && 
+            (data['hourly_consumption'] as Map<String, dynamic>).isNotEmpty) {
+          // Already has hourly data, no need to reconstruct
+          return;
+        }
+      }
+      
+      // Need to create or update the document with reconstructed data
+      Map<String, dynamic> hourlyConsumption = {};
+      Map<String, dynamic> devicesConsumption = {};
+      double totalDailyConsumption = 0.0;
+      
+      // Define usage patterns based on time of day
+      Map<int, double> hourlyPatterns = {
+        0: 0.4,  // 12 AM - low usage (sleeping)
+        1: 0.3,  2: 0.3,  3: 0.3,  4: 0.3,
+        5: 0.5,  // 5 AM - starting to wake up
+        6: 0.8,  // Morning routines begin
+        7: 1.2,  // Morning peak (breakfast, showers)
+        8: 1.3,
+        9: 1.0,  // People leaving for work/school
+        10: 0.8, 11: 0.7,
+        12: 0.9, // Noon - lunch time
+        13: 0.8, 14: 0.7, 15: 0.7, 16: 0.8,
+        17: 1.2, // 5 PM - returning home
+        18: 1.5, // Evening peak (dinner preparation)
+        19: 1.8, // Peak evening usage
+        20: 1.7, // High evening usage
+        21: 1.4, // Starting to wind down
+        22: 1.0, // Getting ready for bed
+        23: 0.6  // Late night, reduced usage
+      };
+      
+      // For each device, estimate its usage throughout the day
+      for (var device in allDevices) {
+        String deviceId = device['id'];
+        double powerConsumption = device['power_consumption'] ?? 0.0;
+        bool wasActive = activeDevices.any((d) => d['id'] == deviceId);
+        
+        // Estimate device's daily consumption based on typical patterns
+        // If it was active at last sync, assume higher usage
+        double estimatedDailyUptime = wasActive ? 8.0 : 2.0; // hours
+        double deviceDailyConsumption = estimatedDailyUptime * powerConsumption;
+        
+        // Add to total consumption
+        totalDailyConsumption += deviceDailyConsumption;
+        
+        // Record device consumption
+        devicesConsumption[deviceId] = {
+          'manufacturer': device['manufacturer'] ?? 'Unknown',
+          'model': device['model'] ?? 'Device',
+          'daily_consumption': deviceDailyConsumption,
+          'daily_uptime': estimatedDailyUptime,
+        };
+        
+        // Distribute consumption across hours based on patterns
+        for (int hour = 0; hour < 24; hour++) {
+          double hourlyFactor = hourlyPatterns[hour] ?? 1.0;
+          double deviceHourlyConsumption = (deviceDailyConsumption / 24.0) * hourlyFactor;
+          
+          // Add to hourly total
+          hourlyConsumption[hour.toString()] = 
+              (hourlyConsumption[hour.toString()] ?? 0.0) + deviceHourlyConsumption;
+        }
+      }
+      
+      // Create or update the document
+      if (doc.exists) {
+        await docRef.update({
+          'total_consumption': totalDailyConsumption,
+          'hourly_consumption': hourlyConsumption,
+          'devices_consumption': devicesConsumption,
+          'is_reconstructed': true, // Flag to indicate this is estimated data
+          'last_updated': FieldValue.serverTimestamp(),
+        });
+      } else {
+        await docRef.set({
+          'date': dayStr,
+          'total_consumption': totalDailyConsumption,
+          'hourly_consumption': hourlyConsumption,
+          'devices_consumption': devicesConsumption,
+          'is_reconstructed': true, // Flag to indicate this is estimated data
+          'timestamp': FieldValue.serverTimestamp(),
+        });
+      }
+      
+      developer.log("Reconstructed data for $dayStr with ${allDevices.length} devices, total: $totalDailyConsumption kWh");
+    } catch (e) {
+      developer.log("Error reconstructing day data for $dayStr: $e");
+    }
+  }
+
+  /// Reconstruct hourly data for today up to the current hour
+  Future<void> _reconstructTodayHours(
+    String userId, 
+    DateTime today, 
+    int currentHour,
+    List<Map<String, dynamic>> allDevices,
+    List<Map<String, dynamic>> activeDevices
+  ) async {
+    try {
+      String todayStr = today.toIso8601String().split('T')[0];
+      
+      // Get today's document
+      DocumentReference docRef = _firestore
+          .collection('users')
+          .doc(userId)
+          .collection('consumption_history')
+          .doc(todayStr);
+      DocumentSnapshot doc = await docRef.get();
+      
+      // Initialize data structures
+      Map<String, dynamic> hourlyConsumption = {};
+      Map<String, dynamic> devicesConsumption = {};
+      double totalConsumption = 0.0;
+      
+      // If document exists, get existing data
+      if (doc.exists) {
+        Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+        if (data.containsKey('hourly_consumption')) {
+          hourlyConsumption = Map<String, dynamic>.from(data['hourly_consumption']);
+        }
+        if (data.containsKey('devices_consumption')) {
+          devicesConsumption = Map<String, dynamic>.from(data['devices_consumption']);
+        }
+        totalConsumption = (data['total_consumption'] ?? 0.0).toDouble();
+      }
+      
+      // Define usage patterns
+      Map<int, double> hourlyPatterns = {
+        0: 0.4,  1: 0.3,  2: 0.3,  3: 0.3,  4: 0.3,
+        5: 0.5,  6: 0.8,  7: 1.2,  8: 1.3,  9: 1.0,
+        10: 0.8, 11: 0.7, 12: 0.9, 13: 0.8, 14: 0.7,
+        15: 0.7, 16: 0.8, 17: 1.2, 18: 1.5, 19: 1.8,
+        20: 1.7, 21: 1.4, 22: 1.0, 23: 0.6
+      };
+      
+      // For each missing hour, estimate consumption
+      for (int hour = 0; hour < currentHour; hour++) {
+        // Skip hours that already have data
+        if (hourlyConsumption.containsKey(hour.toString())) {
+          continue;
+        }
+        
+        double hourlyTotal = 0.0;
+        
+        // For each device, estimate its contribution to this hour
+        for (var device in allDevices) {
+          String deviceId = device['id'];
+          double powerConsumption = device['power_consumption'] ?? 0.0;
+          bool wasActive = activeDevices.any((d) => d['id'] == deviceId);
+          
+          // Estimate hourly consumption based on patterns and active status
+          double hourlyFactor = hourlyPatterns[hour] ?? 1.0;
+          double baseHourlyConsumption = powerConsumption / 24.0; // Base hourly rate
+          double deviceHourlyConsumption = baseHourlyConsumption * hourlyFactor * (wasActive ? 3.0 : 1.0);
+          
+          hourlyTotal += deviceHourlyConsumption;
+          
+          // Update device's consumption for today
+          if (devicesConsumption.containsKey(deviceId)) {
+            double existingConsumption = (devicesConsumption[deviceId]['daily_consumption'] ?? 0.0).toDouble();
+            double existingUptime = (devicesConsumption[deviceId]['daily_uptime'] ?? 0.0).toDouble();
+            
+            devicesConsumption[deviceId]['daily_consumption'] = existingConsumption + deviceHourlyConsumption;
+            devicesConsumption[deviceId]['daily_uptime'] = existingUptime + (deviceHourlyConsumption / powerConsumption);
+          } else {
+            devicesConsumption[deviceId] = {
+              'manufacturer': device['manufacturer'] ?? 'Unknown',
+              'model': device['model'] ?? 'Device',
+              'daily_consumption': deviceHourlyConsumption,
+              'daily_uptime': deviceHourlyConsumption / powerConsumption,
+            };
+          }
+        }
+        
+        // Add to hourly data
+        hourlyConsumption[hour.toString()] = hourlyTotal;
+        totalConsumption += hourlyTotal;
+      }
+      
+      // Update the document
+      if (doc.exists) {
+        await docRef.update({
+          'total_consumption': totalConsumption,
+          'hourly_consumption': hourlyConsumption,
+          'devices_consumption': devicesConsumption,
+          'last_updated': FieldValue.serverTimestamp(),
+        });
+      } else {
+        await docRef.set({
+          'date': todayStr,
+          'total_consumption': totalConsumption,
+          'hourly_consumption': hourlyConsumption,
+          'devices_consumption': devicesConsumption,
+          'timestamp': FieldValue.serverTimestamp(),
+        });
+      }
+      
+      developer.log("Reconstructed today's hourly data up to hour $currentHour, total: $totalConsumption kWh");
+    } catch (e) {
+      developer.log("Error reconstructing today's hourly data: $e");
     }
   }
 }

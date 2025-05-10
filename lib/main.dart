@@ -3,6 +3,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:async';
 import 'firebase_options.dart'; // Ensure this file exists
 import 'theme_provider.dart';
@@ -13,6 +14,8 @@ import 'localization/app_localizations.dart';
 import 'localization/language_provider.dart';
 import 'database/database_helper.dart';
 import 'services/background_service.dart';
+import 'services/background_tasks.dart';
+import 'package:flutter_background_service/flutter_background_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -28,11 +31,21 @@ void main() async {
     // Initialize database for current user if logged in
     User? currentUser = FirebaseAuth.instance.currentUser;
     if (currentUser != null) {
+      // Store user ID for background tasks
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('current_user_id', currentUser.uid);
+      
+      // NEW: Sync and fill missing data before anything else
+      await DatabaseHelper.instance.syncAndFillMissingData(currentUser.uid);
       await DatabaseHelper.instance.initialize(currentUser.uid);
       developer.log("Database initialized for user: ${currentUser.uid}");
       
       // Start the timer to periodically send consumption data
       _startConsumptionDataTimer(currentUser.uid);
+      
+      // Initialize background tasks
+      await BackgroundTasks.initialize();
+      await BackgroundTasks.registerAllTasks();
     }
     
     // Initialize the background service
@@ -80,6 +93,11 @@ void _setupMidnightResetTimer(String userId) {
   final tomorrow = DateTime(now.year, now.month, now.day + 1);
   final timeUntilMidnight = tomorrow.difference(now);
   
+  // Store the scheduled reset time in shared preferences for recovery
+  SharedPreferences.getInstance().then((prefs) {
+    prefs.setString('next_midnight_reset', tomorrow.toIso8601String());
+  });
+  
   // Set a one-time timer to trigger at midnight
   _midnightResetTimer = Timer(timeUntilMidnight, () {
     // Reset daily usage
@@ -118,6 +136,11 @@ Future<void> _sendConsumptionData(String userId) async {
     
     // Then send consumption data
     await DatabaseHelper.instance.autoSendConsumptionData(userId);
+    
+    // Store the last update time
+    SharedPreferences.getInstance().then((prefs) {
+      prefs.setString('last_consumption_update', DateTime.now().toIso8601String());
+    });
   } catch (e) {
     developer.log("Error in periodic consumption data send: $e");
   }
@@ -129,6 +152,16 @@ void _setupAuthListener() {
       // User signed in
       DatabaseHelper.instance.initialize(user.uid);
       _startConsumptionDataTimer(user.uid);
+      
+      // Store the current app state and user ID for background tasks
+      SharedPreferences.getInstance().then((prefs) {
+        prefs.setString('app_last_active', DateTime.now().toIso8601String());
+        prefs.setString('current_user_id', user.uid);
+      });
+      
+      // Register background tasks for the user
+      BackgroundTasks.registerAllTasks();
+      
       developer.log("Auth state changed: User signed in - ${user.uid}");
     } else {
       // User signed out
@@ -136,6 +169,15 @@ void _setupAuthListener() {
       _consumptionDataTimer = null;
       _midnightResetTimer?.cancel();
       _midnightResetTimer = null;
+      
+      // Clear user ID when signed out
+      SharedPreferences.getInstance().then((prefs) {
+        prefs.remove('current_user_id');
+      });
+      
+      // Cancel background tasks
+      BackgroundTasks.cancelAllTasks();
+      
       developer.log("Auth state changed: User signed out");
     }
   });
@@ -166,6 +208,28 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     if (state == AppLifecycleState.resumed) {
       // App resumed from background, refresh data
       _refreshAppDataOnResume();
+    } else if (state == AppLifecycleState.paused) {
+      // App going to background, save state
+      _saveAppStateOnPause();
+    }
+  }
+
+  // Save app state when going to background
+  Future<void> _saveAppStateOnPause() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('app_last_active', DateTime.now().toIso8601String());
+      await prefs.setString('app_state', 'paused');
+      
+      // Make sure background tasks are registered
+      await BackgroundTasks.registerAllTasks();
+      
+      // Notify the background service
+      final service = FlutterBackgroundService();
+      service.invoke('appStateChanged', {'state': 'paused'});
+      
+      developer.log("App paused: saved state for user ${user.uid}");
     }
   }
 
@@ -173,8 +237,52 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   Future<void> _refreshAppDataOnResume() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
+      // Check when the app was last active
+      final prefs = await SharedPreferences.getInstance();
+      String? lastActiveStr = prefs.getString('app_last_active');
+      await prefs.setString('app_state', 'resumed');
+      
+      if (lastActiveStr != null) {
+        DateTime lastActive = DateTime.tryParse(lastActiveStr) ?? DateTime.now();
+        DateTime now = DateTime.now();
+        
+        // If it's been more than 2 minutes since the app was last active
+        if (now.difference(lastActive).inMinutes > 2) {
+          // NEW: Sync and fill missing data before anything else
+          await DatabaseHelper.instance.syncAndFillMissingData(user.uid);
+          
+          // Check if we missed a midnight reset
+          String? nextResetStr = prefs.getString('next_midnight_reset');
+          if (nextResetStr != null) {
+            DateTime nextReset = DateTime.tryParse(nextResetStr) ?? DateTime.now();
+            
+            // If we're past the scheduled reset time
+            if (now.isAfter(nextReset)) {
+              // Force a reset
+              await DatabaseHelper.instance.checkAndResetDailyUsage(user.uid);
+              
+              // Set up a new midnight reset timer
+              _setupMidnightResetTimer(user.uid);
+              
+              developer.log("App resume: performed missed midnight reset for user ${user.uid}");
+            }
+          }
+        }
+      }
+      
       // Force a consumption data update
       await _sendConsumptionData(user.uid);
+      
+      // Update the last active timestamp
+      await prefs.setString('app_last_active', DateTime.now().toIso8601String());
+      
+      // Ensure background tasks are registered
+      await BackgroundTasks.registerAllTasks();
+      
+      // Notify the background service
+      final service = FlutterBackgroundService();
+      service.invoke('appStateChanged', {'state': 'resumed'});
+      
       developer.log("App resumed: refreshed data for user ${user.uid}");
     }
   }
